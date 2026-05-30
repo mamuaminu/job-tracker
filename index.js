@@ -1,16 +1,20 @@
 #!/usr/bin/env node
 /**
- * Matador Job Tracker
- * CLI tool to track job applications, follow-ups, and interview rounds.
- * 
+ * JobTracker — CLI tool to track job applications, follow-ups, interview rounds, and more.
+ *
  * Usage:
- *   job-tracker add "Company" "Role" --url=https://... --list=applied
- *   job-tracker list
- *   job-tracker followup <id>
- *   job-tracker status <id> <stage>
- *   job-tracker stale
- *   job-tracker digest
- *   job-tracker stats
+ *   jobtracker add "Company" "Role" --url=https://... --stage=applied --salary=... --tag=...
+ *   jobtracker list [stage]
+ *   jobtracker status <id> <stage>
+ *   jobtracker note <id> <text>
+ *   jobtracker tag <id> <tag>
+ *   jobtracker followup <id> [--days=7]
+ *   jobtracker stale
+ *   jobtracker digest
+ *   jobtracker stats
+ *   jobtracker update <id> [--company=] [--role=] [--url=] [--salary=] [--notes=]
+ *   jobtracker remove <id>
+ *   jobtracker export [path]
  */
 
 const fs = require('fs');
@@ -51,23 +55,30 @@ function uid() {
   return Math.random().toString(36).slice(2, 9).toUpperCase();
 }
 
-const STAGES = ['applied', 'screening', 'interview', 'offer', 'rejected', 'withdrawn'];
-const STAGE_EMOJI = { applied: '📨', screening: '🔍', interview: '🎤', offer: '💰', rejected: '❌', withdrawn: '🚪' };
-const STAGE_COLOR = { applied: '\x1b[33m', screening: '\x1b[36m', interview: '\x1b[35m', offer: '\x1b[32m', rejected: '\x1b[31m', withdrawn: '\x1b[90m' };
+const STAGES = ['applied', 'screening', 'interview', 'offer', 'rejected', 'withdrawn', 'ghost'];
+const STAGE_EMOJI = {
+  applied: '📨', screening: '🔍', interview: '🎤', offer: '💰',
+  rejected: '❌', withdrawn: '🚪', ghost: '👻'
+};
+const STAGE_COLOR = {
+  applied: '\x1b[33m', screening: '\x1b[36m', interview: '\x1b[35m',
+  offer: '\x1b[32m', rejected: '\x1b[31m', withdrawn: '\x1b[90m', ghost: '\x1b[90m'
+};
 const RESET = '\x1b[0m';
 
 // ─── Commands ──────────────────────────────────────────────────────────────
 
 function cmdAdd(argv) {
   if (argv._.length < 2) {
-    console.error('Usage: job-tracker add "Company" "Role" [--url=...] [--list=applied] [--salary=...] [--notes=...]');
+    console.error('Usage: jobtracker add "Company" "Role" [--url=...] [--stage=applied] [--salary=...] [--tag=...] [--notes=...]');
     process.exit(1);
   }
   const company = argv._[0];
   const role = argv._[1];
   const url = argv.url || '';
-  const list = argv.list || 'applied';
+  const stage = argv.stage || 'applied';
   const salary = argv.salary || '';
+  const tag = argv.tag || 'general';
   const notes = argv.notes || '';
 
   const db = readDB();
@@ -76,62 +87,68 @@ function cmdAdd(argv) {
     company,
     role,
     url,
-    stage: list,
+    stage,
     salary,
+    tag,
     notes,
     created: now(),
     updated: now(),
     followUp: null,
     followUpSent: false,
-    history: [{ stage: list, date: now() }]
+    history: [{ stage, date: now() }],
+    noteLog: notes ? [{ text: notes, date: now() }] : []
   };
 
   db.push(entry);
   writeDB(db);
   console.log(`\n  ✅ Added [${entry.id}] ${entry.company} — ${entry.role}`);
-  console.log(`  📌 Stage: ${list} | URL: ${url || 'none'}`);
-  console.log(`  💰 Salary: ${salary || 'not specified'}`);
-  if (notes) console.log(`  📝 Notes: ${notes}`);
+  console.log(`  📌 Stage: ${stage} | Tag: #${tag} | URL: ${url || 'none'}`);
+  if (salary) console.log(`  💰 Salary: ${salary}`);
   console.log('');
 }
 
 function cmdList(argv) {
   const db = readDB();
+  const filter = argv._[0] || null;
+
   if (db.length === 0) {
-    console.log('\n  📭 No applications tracked yet.\n  Run: job-tracker add "Company" "Role"\n');
+    console.log('\n  📭 No applications tracked yet.\n  Run: jobtracker add "Company" "Role"\n');
     return;
   }
 
-  const filter = argv.filter || null;
-  const filtered = filter ? db.filter(e => e.stage === filter) : db;
+  const filtered = filter
+    ? db.filter(e => e.stage === filter || e.tag === filter)
+    : db;
 
   console.log('\n  ╔══════════════════════════════════════════════════════════════════════════╗');
-  console.log('  ║            📋 MATADOR JOB TRACKER — ' + filtered.length + ' application(s)                     ║');
+  console.log(`  ║            📋 JOB TRACKER — ${String(filtered.length).padStart(2)} application(s)                           ║`);
   console.log('  ╠══════════════════════════════════════════════════════════════════════════╣');
 
   filtered.sort((a, b) => new Date(b.updated) - new Date(a.updated)).forEach(e => {
     const age = daysAgo(e.created);
-    const upd = daysAgo(e.updated);
     const color = STAGE_COLOR[e.stage] || '';
     const emoji = STAGE_EMOJI[e.stage] || '📌';
-    console.log(`  ║ ${emoji} [${e.id}] ${e.company.substring(0, 28).padEnd(28)}                      ║`);
+    console.log(`  ║ ${emoji} [${e.id}] ${e.company.substring(0, 28).padEnd(28)}            ║`);
     console.log(`  ║   Role: ${e.role.substring(0, 55).padEnd(55)}  ║`);
-    console.log(`  ║   Stage: ${color}${e.stage.toUpperCase().padEnd(12)}${RESET} | Added: ${fmtDate(e.created)} (${age}d ago)         ║`);
-    if (e.url) console.log(`  ║   URL:   ${e.url.substring(0, 63).padEnd(63)}  ║`);
-    if (e.salary) console.log(`  ║   Salary: ${e.salary.padEnd(60)}  ║`);
+    console.log(`  ║   Stage: ${color}${e.stage.toUpperCase().padEnd(12)}${RESET} | Tag: #${e.tag} | Added: ${age}d ago    ║`);
+    if (e.url) console.log(`  ║   URL:   ${e.url.substring(0, 70).padEnd(70)}  ║`);
+    if (e.salary) console.log(`  ║   Salary: ${e.salary.padEnd(67)}  ║`);
+    if (e.noteLog && e.noteLog.length > 0) {
+      console.log(`  ║   📝 ${e.noteLog[e.noteLog.length - 1].text.substring(0, 70).padEnd(70)}  ║`);
+    }
     if (e.followUp && !e.followUpSent) {
       const fuDays = daysAgo(e.followUp);
-      if (fuDays >= 0) console.log(`  ║   ⚠️  Follow-up due: ${fmtDate(e.followUp)} (${fuDays}d ago)         ║`);
+      if (fuDays >= 0) console.log(`  ║   ⏰ Follow-up: ${fmtDate(e.followUp)} (${fuDays}d overdue)        ║`);
     }
     console.log('  ╠══════════════════════════════════════════════════════════════════════════╣');
   });
 
-  console.log(`\n  Tip: job-tracker list --filter=interview  (or screening|offer|rejected)\n`);
+  console.log(`\n  Tip: jobtracker list <stage>  or  jobtracker list #<tag>\n`);
 }
 
 function cmdStatus(argv) {
   if (argv._.length < 2) {
-    console.error('Usage: job-tracker status <id> <stage>');
+    console.error('Usage: jobtracker status <id> <stage>');
     process.exit(1);
   }
   const id = argv._[0].toUpperCase();
@@ -158,9 +175,47 @@ function cmdStatus(argv) {
   console.log('');
 }
 
-function cmdFollowup(argv) {
+function cmdNote(argv) {
   if (argv._.length < 2) {
-    console.error('Usage: job-tracker followup <id> [--days=7]');
+    console.error('Usage: jobtracker note <id> <text>');
+    process.exit(1);
+  }
+  const id = argv._[0].toUpperCase();
+  const text = argv._.slice(1).join(' ');
+
+  const db = readDB();
+  const entry = db.find(e => e.id === id);
+  if (!entry) { console.error(`Application [${id}] not found.`); process.exit(1); }
+
+  if (!entry.noteLog) entry.noteLog = [];
+  entry.noteLog.push({ text, date: now() });
+  entry.updated = now();
+
+  writeDB(db);
+  console.log(`\n  📝 Added note to [${id}] ${entry.company}\n`);
+}
+
+function cmdTag(argv) {
+  if (argv._.length < 2) {
+    console.error('Usage: jobtracker tag <id> <tag>');
+    process.exit(1);
+  }
+  const id = argv._[0].toUpperCase();
+  const tag = argv._[1];
+
+  const db = readDB();
+  const entry = db.find(e => e.id === id);
+  if (!entry) { console.error(`Application [${id}] not found.`); process.exit(1); }
+
+  entry.tag = tag;
+  entry.updated = now();
+  writeDB(db);
+  console.log(`\n  🏷️  Tagged [${id}] as #${tag}\n`);
+}
+
+function cmdFollowup(argv) {
+  if (argv._.length < 1) {
+    console.error('Usage: jobtracker followup <id> [--days=7]');
     process.exit(1);
   }
   const id = argv._[0].toUpperCase();
@@ -182,7 +237,7 @@ function cmdFollowup(argv) {
 
 function cmdStale(argv) {
   const db = readDB();
-  const stale = db.filter(e => ['applied', 'screening'].includes(e.stage) && daysAgo(e.updated) >= 7);
+  const stale = db.filter(e => ['applied', 'screening', 'ghost'].includes(e.stage) && daysAgo(e.updated) >= 7);
 
   console.log('\n  ⚠️  STALE APPLICATIONS (no update in 7+ days)\n');
   if (stale.length === 0) { console.log('  ✅ All active applications are fresh.\n'); return; }
@@ -191,12 +246,12 @@ function cmdStale(argv) {
     const age = daysAgo(e.updated);
     const emoji = STAGE_EMOJI[e.stage] || '📌';
     console.log(`  ${emoji} [${e.id}] ${e.company} — ${e.role}`);
-    console.log(`      Stage: ${e.stage} | Last update: ${age}d ago | URL: ${e.url || 'none'}`);
+    console.log(`      Stage: ${e.stage} | Last update: ${age}d ago | #${e.tag}`);
+    if (e.url) console.log(`      URL: ${e.url}`);
     console.log('');
   });
 
   console.log(`  ${stale.length} application(s) need attention.\n`);
-  console.log('  To update: job-tracker status <id> <new-stage>\n');
 }
 
 async function cmdDigest(argv) {
@@ -213,15 +268,14 @@ async function cmdDigest(argv) {
   STAGES.forEach(s => byStage[s] = 0);
   db.forEach(e => { if (byStage[e.stage] !== undefined) byStage[e.stage]++; });
 
-  const stale = db.filter(e => ['applied', 'screening'].includes(e.stage) && daysAgo(e.updated) >= 7);
+  const stale = db.filter(e => ['applied', 'screening', 'ghost'].includes(e.stage) && daysAgo(e.updated) >= 7);
   const thisWeek = db.filter(e => daysAgo(e.created) <= 7);
-  const last7days = db.filter(e => daysAgo(e.updated) <= 7);
 
-  let md = `📊 *MATADOR JOB DIGEST* — ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}\n\n`;
+  let md = `📊 *JOB TRACKER DIGEST* — ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}\n\n`;
   md += `*Total tracked:* ${total} application(s)\n\n`;
   md += `*By Stage:*\n`;
   STAGES.forEach(s => {
-    if (byStage[s] > 0) md += `  ${STAGE_EMOJI[s]} ${s}: ${byStage[s]}\n`;
+    if (byStage[s] > 0) md += `  ${STAGE_EMOJI[s] || '📌'} ${s}: ${byStage[s]}\n`;
   });
   md += `\n*This week:* ${thisWeek.length} new applied\n`;
   md += `*Stale (7+d):* ${stale.length}\n`;
@@ -254,7 +308,7 @@ function cmdStats(argv) {
 
   const active = db.filter(e => !['rejected', 'withdrawn'].includes(e.stage)).length;
   const thisWeek = db.filter(e => daysAgo(e.created) <= 7).length;
-  const stale = db.filter(e => ['applied', 'screening'].includes(e.stage) && daysAgo(e.updated) >= 7).length;
+  const stale = db.filter(e => ['applied', 'screening', 'ghost'].includes(e.stage) && daysAgo(e.updated) >= 7).length;
 
   console.log('\n  ┌─────────────────────────────────────┐');
   console.log('  │   📊 JOB TRACKER STATISTICS          │');
@@ -266,13 +320,13 @@ function cmdStats(argv) {
   console.log('  ├─────────────────────────────────────┤');
   console.log('  │   By Stage:                         │');
   STAGES.forEach(s => {
-    if (byStage[s] > 0) console.log(`  │   ${STAGE_EMOJI[s]} ${s.padEnd(14)} ${String(byStage[s]).padStart(5)}  │`);
+    if (byStage[s] > 0) console.log(`  │   ${STAGE_EMOJI[s] || '📌'} ${s.padEnd(14)} ${String(byStage[s]).padStart(5)}  │`);
   });
   console.log('  └─────────────────────────────────────┘\n');
 }
 
 function cmdRemove(argv) {
-  if (!argv._[0]) { console.error('Usage: job-tracker remove <id>'); process.exit(1); }
+  if (!argv._[0]) { console.error('Usage: jobtracker remove <id>'); process.exit(1); }
   const id = argv._[0].toUpperCase();
   const db = readDB();
   const idx = db.findIndex(e => e.id === id);
@@ -283,7 +337,7 @@ function cmdRemove(argv) {
 }
 
 function cmdUpdate(argv) {
-  if (!argv._[0]) { console.error('Usage: job-tracker update <id> [--company=] [--role=] [--url=] [--salary=] [--notes=]'); process.exit(1); }
+  if (!argv._[0]) { console.error('Usage: jobtracker update <id> [--company=] [--role=] [--url=] [--salary=] [--notes=]'); process.exit(1); }
   const id = argv._[0].toUpperCase();
   const db = readDB();
   const entry = db.find(e => e.id === id);
@@ -307,6 +361,15 @@ function cmdExport(argv) {
   console.log(`\n  📁 Exported ${db.length} application(s) to ${outPath}\n`);
 }
 
+function cmdClear(argv) {
+  const db = readDB();
+  if (db.length === 0) { console.log('\n  ℹ️  Nothing to clear.\n'); return; }
+  const backup = path.join(DATA_DIR, `backup-${Date.now()}.json`);
+  fs.writeFileSync(backup, JSON.stringify(db, null, 2));
+  writeDB([]);
+  console.log(`\n  🗑️  Cleared ${db.length} application(s). Backup saved to ${backup}\n`);
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 const COMMANDS = {
@@ -314,6 +377,8 @@ const COMMANDS = {
   list: cmdList,
   ls: cmdList,
   status: cmdStatus,
+  note: cmdNote,
+  tag: cmdTag,
   followup: cmdFollowup,
   stale: cmdStale,
   digest: cmdDigest,
@@ -322,16 +387,19 @@ const COMMANDS = {
   rm: cmdRemove,
   update: cmdUpdate,
   export: cmdExport,
+  clear: cmdClear,
 };
 
 function parseArgv(argv) {
-  // Simple argv parser: --key=value --key "value" positional
   const out = { _: [] };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
       const [k, v] = a.slice(2).split('=');
       out[k] = v || true;
+    } else if (a.startsWith('-') && a.length > 1) {
+      const k = a.slice(1);
+      out[k] = true;
     } else {
       out._.push(a);
     }
@@ -343,30 +411,28 @@ const args = parseArgv(process.argv);
 const cmd = args._[0] || 'help';
 
 if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
-  console.log(`\n  Matador Job Tracker v1.0.0\n`);
+  console.log(`\n  JobTracker v2.0.0\n`);
   console.log(`  Commands:`);
-  console.log(`    add "Company" "Role" --url=... --list=applied --salary=...  Add application`);
-  console.log(`    list [--filter=stage]        List all applications`);
-  console.log(`    status <id> <stage>         Update stage (applied|screening|interview|offer|rejected|withdrawn)`);
-  console.log(`    followup <id> [--days=7]    Schedule follow-up reminder`);
-  console.log(`    stale                       Show applications with no update in 7+ days`);
-  console.log(`    digest                      Show/telegram digest of all applications`);
-  console.log(`    stats                       Show statistics`);
-  console.log(`    update <id> [--company=] [--role=] [--url=]  Update entry`);
-  console.log(`    remove <id>                 Remove application`);
-  console.log(`    export [path]               Export to JSON`);
+  console.log(`    add "Company" "Role" [--url=...] [--stage=applied] [--salary=...] [--tag=...]  Add application`);
+  console.log(`    list [stage|#tag]           List all applications (filter by stage or tag)`);
+  console.log(`    status <id> <stage>         Update stage (${STAGES.join('|')})`);
+  console.log(`    note <id> <text>             Add a note to an application`);
+  console.log(`    tag <id> <tag>               Tag an application`);
+  console.log(`    followup <id> [--days=7]     Schedule follow-up reminder`);
+  console.log(`    stale                        Show applications with no update in 7+ days`);
+  console.log(`    digest                       Show/telegram digest of all applications`);
+  console.log(`    stats                        Show statistics`);
+  console.log(`    update <id> [--company=] [--role=] [--url=] [--salary=]  Update entry`);
+  console.log(`    remove <id>                  Remove application`);
+  console.log(`    export [path]                Export to JSON`);
+  console.log(`    clear                        Reset all data (creates backup)`);
   console.log(`\n  Environment:`);
   console.log(`    TELEGRAM_BOT_TOKEN  Send digest to Telegram`);
   console.log(`    TELEGRAM_CHAT_ID    Your Telegram chat ID`);
-  console.log(`\n  Examples:`);
-  console.log(`    job-tracker add "Trace3" "SOC Analyst" --url=https://trace3.com/careers --salary="\$90k" --list=applied`);
-  console.log(`    job-tracker status ABC1234 interview`);
-  console.log(`    job-tracker followup ABC1234 --days=5`);
-  console.log(`    job-tracker digest`);
-  console.log(`\n`);
+  console.log(`\n  Data: ~/.job-tracker/applications.json\n`);
 } else if (COMMANDS[cmd]) {
   COMMANDS[cmd](args);
 } else {
-  console.error(`Unknown command: ${cmd}. Run: job-tracker help`);
+  console.error(`Unknown command: ${cmd}. Run: jobtracker help`);
   process.exit(1);
 }

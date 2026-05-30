@@ -1,176 +1,102 @@
-# Job Tracker
+# JobTracker — ATS CLI
 
-CLI tool to track job applications, follow-ups, interview stages, and send digests to Telegram. Zero dependencies, works fully offline, data stays on your machine.
+> Track every job application, interview, and offer from your terminal.
 
-## Why This?
+![Node](https://img.shields.io/badge/node-%3E%3D14-brightgreen) ![MIT](https://img.shields.io/badge/license-MIT-blue)
 
-Most job trackers are spreadsheets or paid SaaS tools. Job Tracker is a local CLI that lives in your terminal — no accounts, no subscriptions, no data leaving your machine. Track every role from first application through offer or rejection, with follow-up reminders and a Telegram digest so you never miss a deadline.
+## Features
 
-## Requirements
-
-- Node.js 14+
-- No external npm packages (uses only Node.js built-ins)
+- **Add** applications with role, company, URL, salary, and tags
+- **List** all applications, filter by stage or tag
+- **Track stages** — applied → screening → interview → offer | rejected | ghost
+- **Notes & tagging** — add notes and custom tags to any application
+- **Follow-up reminders** — schedule follow-ups and see overdue items
+- **Stale detection** — automatically flags applications with no update in 7+ days
+- **Statistics** — summary of your pipeline by stage
+- **Telegram digest** — send a formatted digest to your Telegram bot
+- **Export** — export all data to JSON
 
 ## Install
 
-**Option 1 — Symlink to ~/bin (recommended)**
 ```bash
-git clone https://github.com/mamuaminu/job-tracker.git
-cd job-tracker
-chmod +x index.js
-ln -s "$(pwd)/index.js" ~/bin/job-tracker
-# Now use: job-tracker <command>
+git clone https://github.com/mamuaminu/job-tracker.git ~/job-tracker
+cp ~/job-tracker/index.js ~/bin/jobtracker
+chmod +x ~/bin/jobtracker
 ```
 
-**Option 2 — Run directly**
+Or use directly:
+
 ```bash
-node /path/to/job-tracker/index.js <command>
+node ~/job-tracker/index.js <command>
 ```
 
-**Option 3 — npm global install**
-```bash
-npm install -g job-tracker
+## Commands
+
+```
+jobtracker add "Company" "Role" [--url=https://...] [--stage=applied] [--salary=...] [--tag=...]
+jobtracker list [stage|#tag]
+jobtracker status <id> <stage>
+jobtracker note <id> <text>
+jobtracker tag <id> <tag>
+jobtracker followup <id> [--days=7]
+jobtracker stale
+jobtracker digest
+jobtracker stats
+jobtracker update <id> [--company=] [--role=] [--url=] [--salary=]
+jobtracker remove <id>
+jobtracker export [path]
+jobtracker clear
 ```
 
-## Core Commands
-
-### Add an application
-```bash
-job-tracker add "CrowdStrike" "SOC Analyst" \
-  --url=https://crowdstrike.com/jobs \
-  --salary="$120k" \
-  --list=applied
-```
-
-### List all applications
-```bash
-job-tracker list                      # show all
-job-tracker list --filter=applied     # only applied
-job-tracker list --filter=screening   # in screening
-job-tracker list --filter=interview   # in interview round
-job-tracker list --filter=offer      # got an offer
-job-tracker list --filter=rejected   # rejected
-```
-
-### Update application stage
-```bash
-job-tracker status ABC1234 screening # moved to screening
-job-tracker status ABC1234 interview # moved to interview
-job-tracker status ABC1234 offer      # received offer
-job-tracker status ABC1234 rejected # rejected
-job-tracker status ABC1234 withdrawn # withdrew application
-```
-
-### Schedule a follow-up reminder
-```bash
-job-tracker followup ABC1234 --days=7   # remind in 7 days
-job-tracker followup ABC1234 --days=3    # remind in 3 days
-```
-
-### Check for stale applications
-```bash
-job-tracker stale
-# Flags any application with no update in 7+ days
-```
-
-### View statistics
-```bash
-job-tracker stats
-# Shows: total applications, by stage, offers, rejections, hit rate
-```
-
-### Update an entry
-```bash
-job-tracker update ABC1234 --salary="$130k" --notes="Referred by Ahmad"
-```
-
-### Remove an entry
-```bash
-job-tracker remove ABC1234
-```
-
-### Export data
-```bash
-job-tracker export ~/Desktop/job-tracker-export.json
-```
-
-## Application Stages
-
-The tracker uses this stage flow:
+### Stage Workflow
 
 ```
 applied → screening → interview → offer
-                                  ↘ rejected
-                                  ↘ withdrawn
+                             ↘ rejected / ghost / withdrawn
 ```
 
-Each transition is timestamped, so the full history of every application is preserved.
+## Usage Examples
+
+```bash
+# Add a new application
+jobtracker add "Trace3" "SOC Analyst I" --url=https://trace3.com/careers --salary="\$90k" --tag=soc
+
+# Track an interview
+jobtracker status ABC1234 interview
+
+# Landed an interview — add a note
+jobtracker note ABC1234 "HR called — technical round scheduled for Thursday"
+
+# Tag it
+jobtracker tag ABC1234 priority
+
+# Schedule a follow-up
+jobtracker followup ABC1234 --days=5
+
+# Check stale applications
+jobtracker stale
+
+# Get your stats
+jobtracker stats
+
+# Send digest to Telegram
+TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... jobtracker digest
+```
 
 ## Telegram Digest
 
-Set your Telegram bot credentials once, then send digests on demand:
+Set environment variables once:
 
 ```bash
-# Set environment variables
-export TELEGRAM_BOT_TOKEN="your_bot_token"
-export TELEGRAM_CHAT_ID="your_chat_id"
-
-# Send digest to your Telegram chat
-job-tracker digest
+export TELEGRAM_BOT_TOKEN="your-bot-token"
+export TELEGRAM_CHAT_ID="your-chat-id"
+jobtracker digest
 ```
 
-The digest includes: total active applications, new additions since last check, applications per stage, and stale items.
+## Data
 
-**Getting a Telegram bot token:**
-1. Message @BotFather on Telegram
-2. Send /newbot and follow the steps
-3. Copy the token above
-4. Start a chat with your bot, then get your chat ID from @userinfobot
-
-## Data Storage
-
-All data is stored in `~/.job-tracker/applications.json`. No database, no API calls, no cloud. Your data never leaves your machine unless you explicitly export it.
-
-## Example Workflow
-
-```bash
-# Day 1 — Found a role
-job-tracker add "CrowdStrike" "SOC Analyst" \
-  --url=https://crowdstrike.com/jobs \
-  --list=applied \
-  --salary="$120k"
-
-# Day 3 — Got a screening call
-job-tracker status ABC1234 screening
-job-tracker followup ABC1234 --days=5
-
-# Day 8 — Screening passed, interview scheduled
-job-tracker status ABC1234 interview
-job-tracker followup ABC1234 --days=7
-
-# Day 15 — Got an offer
-job-tracker status ABC1234 offer
-
-# Any time — Check your stats
-job-tracker stats
-```
-
-## Automate Weekly Digest
-
-Add to crontab for a weekly Telegram report every Monday at 9 AM:
-
-```bash
-0 9 * * 1 TELEGRAM_BOT_TOKEN=xxx TELEGRAM_CHAT_ID=yyy job-tracker digest
-```
-
-## Files
-
-```
-job-tracker/
-├── index.js           # Main CLI application
-├── README.md          # This file
-```
+All data is stored in `~/.job-tracker/applications.json`. No external database, no API keys needed for core functionality.
 
 ---
 
-By Muhammad Aminu Musa
+JobTracker — open source ATS CLI
