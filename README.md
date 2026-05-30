@@ -1,6 +1,6 @@
-# Matador Job Tracker
+# Job Tracker
 
-CLI tool to track job applications, follow-ups, interview rounds, and send digests to Telegram. Built for Muhammad Aminu Musa (El Matador) during his job search.
+CLI tool to track job applications, follow-ups, interview stages, and send digests to Telegram. Zero dependencies, works offline, data stays on your machine.
 
 ## Install
 
@@ -9,30 +9,33 @@ cp ~/.openclaw/workspace/job-tracker/index.js ~/bin/job-tracker
 chmod +x ~/bin/job-tracker
 ```
 
-Or use directly with `node ~/.openclaw/workspace/job-tracker/index.js <command>`.
+Or run directly:
+```bash
+node ~/.openclaw/workspace/job-tracker/index.js <command>
+```
 
 ## Commands
 
 ### Add an application
 ```bash
-job-tracker add "Trace3" "SOC Analyst I" \
-  --url=https://trace3.com/careers \
-  --salary="\$90,000" \
+job-tracker add "CrowdStrike" "SOC Analyst" \
+  --url=https://crowdstrike.com/jobs \
+  --salary="\$120k" \
   --list=applied
 ```
 
-### List all applications
+### List applications
 ```bash
 job-tracker list                    # all
 job-tracker list --filter=interview  # filter by stage
-job-tracker list --filter=applied   # jobs you applied to
+job-tracker list --filter=applied   # jobs applied to
 ```
 
 ### Update stage
 ```bash
-job-tracker status ABC1234 interview   # move to interview round
-job-tracker status ABC1234 offer        # you got an offer!
-job-tracker status ABC1234 rejected     # move to rejected
+job-tracker status ABC1234 interview # move to interview round
+job-tracker status ABC1234 offer        # offer received
+job-tracker status ABC1234 rejected # move to rejected
 ```
 
 ### Schedule follow-up
@@ -48,7 +51,7 @@ job-tracker stale
 
 ### Get digest
 ```bash
-job-tracker digest          # show to stdout
+job-tracker digest          # print to stdout
 TELEGRAM_BOT_TOKEN=xxx TELEGRAM_CHAT_ID=1842342246 job-tracker digest  # send to Telegram
 ```
 
@@ -59,7 +62,7 @@ job-tracker stats
 
 ### Update an entry
 ```bash
-job-tracker update ABC1234 --salary="\$95,000" --notes="Referred by Ahmad"
+job-tracker update ABC1234 --salary="\$95,000" --notes="Referred by colleague"
 ```
 
 ### Remove an entry
@@ -69,7 +72,7 @@ job-tracker remove ABC1234
 
 ### Export data
 ```bash
-job-tracker export ~/Desktop/job-tracker-export.json
+job-tracker export ~/Desktop/export.json
 ```
 
 ## Stages
@@ -78,10 +81,10 @@ job-tracker export ~/Desktop/job-tracker-export.json
 
 ## Telegram Digest
 
-Set environment variables:
+Set environment variables and run the digest command:
 ```bash
 export TELEGRAM_BOT_TOKEN="your_bot_token"
-export TELEGRAM_CHAT_ID="1842342246"
+export TELEGRAM_CHAT_ID="your_chat_id"
 job-tracker digest
 ```
 
@@ -89,9 +92,8 @@ job-tracker digest
 
 All data is stored in `~/.job-tracker/applications.json`. No external database, no API keys needed for core functionality.
 
-## Examples in Context
+## Example Workflow
 
-Job searching while building every night:
 ```bash
 # After applying to a role
 job-tracker add "CrowdStrike" "SOC Analyst" --url=https://crowdstrike.com/jobs --list=applied --salary="\$120k"
@@ -107,7 +109,5 @@ job-tracker followup ABC1234 --days=5
 0 9 * * 1 TELEGRAM_BOT_TOKEN=xxx TELEGRAM_CHAT_ID=yyy ~/bin/job-tracker digest
 ```
 
-## Why This?
-
-El Matador is ISC2 CC + CISCO pentest certified, job hunting across Europe/Middle East/Asia.
-He builds something new every night. This tool helps him stay organized and follow up on every opportunity — because missing a follow-up is worse than not applying at all.
+---
+By Muhammad Aminu Musa
